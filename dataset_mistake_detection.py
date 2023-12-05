@@ -8,6 +8,7 @@ from torch.utils import data
 from tqdm import tqdm
 import json
 from utils import filelist_to_df
+from collections import Counter
 
 
 class SequenceDataset(data.Dataset):
@@ -15,7 +16,7 @@ class SequenceDataset(data.Dataset):
                  path_to_annots,
                  path_to_info,
                  mode,  # 'test' or 'train'
-                 label_type=['coarse'], # ['coarse', 'label'],
+                 label_type='coarse', # ['coarse', 'label'],
                  img_tmpl="{video}/{view}/{view}_{frame:010d}.jpg",
                  fps=30,
                  args=None):
@@ -33,6 +34,9 @@ class SequenceDataset(data.Dataset):
                 files = splits[f'{mode}_session_set']
                 files = [f + '.csv' for f in files]
         self.annotations = filelist_to_df(path_to_annots, files)
+        self.annotations = self.annotations.reset_index(drop=True)
+        self.num_samples_per_class = self.annotations[label_type].value_counts().sort_index().tolist()
+        print(self.num_samples_per_class)
         self.task = args.task
         self.view = args.view
 
@@ -82,7 +86,7 @@ class SequenceDataset(data.Dataset):
         for _, a in tqdm(self.annotations.iterrows(), 'Populating Dataset', total=len(self.annotations)):
             count_debug += 1
             if self.debug_on:
-                if count_debug > 10:
+                if count_debug > 20:
                     break
 
             # sample frames before the beginning of the mistake
@@ -107,6 +111,11 @@ class SequenceDataset(data.Dataset):
                     self.discarded_labels.append(a[self.label_type].values.astype(int))
                 else: #single label version
                     self.discarded_labels.append(a[self.label_type])
+
+        print(f'Number of mistakes: {len(self.ids)}')
+        print(f'Number of discarded mistakes: {len(self.discarded_ids)}')
+
+
 
     def __get_snippet_features(self, point_start, point_end, video):
 

@@ -103,7 +103,7 @@ def make_model_name(arg_save):
 
     while full_filename in os.listdir(arg_save.path_to_models):
         save_name = base_save_name + '_try_' + str(try_number) 
-        full_filename = '.txt'
+        full_filename = save_name + '.txt'
         try_number += 1
     return save_name
 
@@ -137,10 +137,10 @@ def log_result(log:List[str], result, type):
 def train_test(model, loaders, optimizer, epochs, start_epoch, schedule_on):
     """Training/Test code"""
 
-    loss_mistake_TAB1 = BalancedSoftmax(args.num_coarse_classes)
-    loss_mistake_TAB2 = BalancedSoftmax(args.num_coarse_classes)
-    loss_mistake_TAB3 = BalancedSoftmax(args.num_coarse_classes)
-    loss_mistake_TAB4 = BalancedSoftmax(args.num_coarse_classes)
+    loss_mistake_TAB1 = BalancedSoftmax(args.train_num_samples_per_class)
+    loss_mistake_TAB2 = BalancedSoftmax(args.train_num_samples_per_class)
+    loss_mistake_TAB3 = BalancedSoftmax(args.train_num_samples_per_class)
+    loss_mistake_TAB4 = BalancedSoftmax(args.train_num_samples_per_class)
 
     start = time.time()
 
@@ -229,7 +229,7 @@ def train_test(model, loaders, optimizer, epochs, start_epoch, schedule_on):
 
         log.append("=======================================")
         print("\n".join(log))
-        log.append("=======================================")
+        log.append("=======================================\n")
         print("=======================================")
 
 
@@ -261,6 +261,8 @@ def get_loader(mode):
         'args': args
     }
     _set = SequenceDataset(**kargs)
+    if mode == 'train':
+        args.train_num_samples_per_class = _set.num_samples_per_class
 
     return DataLoader(_set, batch_size=args.batch_size, num_workers=args.num_workers,
                       pin_memory=True, shuffle=True)

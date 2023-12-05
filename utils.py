@@ -27,13 +27,6 @@ class ValueMeter(object):
     
 
 def calculate_metrics(pd_labels, gt_labels, class_names):
-    pd_labels = pd_labels.copy()
-    gt_labels = gt_labels.copy()
-    pd_labels.append(1)
-    gt_labels.append(1)
-    print(pd_labels)
-    print(gt_labels)
-
 
     result = OrderedDict()
 
