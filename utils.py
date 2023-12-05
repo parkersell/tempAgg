@@ -6,30 +6,12 @@ from torch.autograd import Variable
 import numpy as np
 from torch.nn.modules.loss import _Loss
 from torch.nn import functional as F
+from typing import List
+import pandas as pd
+from collections import OrderedDict
+from sklearn.metrics import recall_score, precision_score, accuracy_score
 
-class MeanTopKRecallMeter(object):
-    def __init__(self, num_classes, k=5):
-        self.num_classes = num_classes
-        self.k = k
-        self.reset()
-
-    def reset(self):
-        self.tps = np.zeros(self.num_classes)
-        self.nums = np.zeros(self.num_classes)
-
-    def add(self, scores, labels):
-        tp = (np.argsort(scores, axis=1)[:, -self.k:] == labels.reshape(-1, 1)).max(1)
-        for l in np.unique(labels):
-            self.tps[l]+=tp[labels==l].sum()
-            self.nums[l]+=(labels==l).sum()
-
-    def value(self):
-        recalls = (self.tps/self.nums)[self.nums>0]
-        if len(recalls)>0:
-            return recalls.mean()*100
-        else:
-            return None
-
+from constants import COARSE_TO_LABEL, VERB_TO_LABEL, NOUN_TO_LABEL, FINE_TO_LABEL, CLEAN_FINE, COLS
         
 class ValueMeter(object):
     def __init__(self):
@@ -42,110 +24,61 @@ class ValueMeter(object):
 
     def value(self):
         return self.sum / self.total
+    
+
+def calculate_metrics(pd_labels, gt_labels, class_names):
+    pd_labels = pd_labels.copy()
+    gt_labels = gt_labels.copy()
+    pd_labels.append(1)
+    gt_labels.append(1)
+    print(pd_labels)
+    print(gt_labels)
 
 
-def topk_accuracy(scores, labels, ks, selected_class=None):
-    """Computes TOP-K accuracies for different values of k
-    Args:
-        scores: numpy nd array, shape = (instance_count, label_count)
-        labels: numpy nd array, shape = (instance_count,)
-        ks: tuple of integers
-    Returns:
-        list of float: TOP-K accuracy for each k in ks
-    """
-    if selected_class is not None:
-        idx = labels == selected_class
-        scores = scores[idx]
-        labels = labels[idx]
-    rankings = scores.argsort()[:, ::-1]
-    maxk = np.max(ks)  # trim to max k to avoid extra computation
+    result = OrderedDict()
 
-    # compute true positives in the top-maxk predictions
-    tp = rankings[:, :maxk] == labels.reshape(-1, 1)
+    result["per_class_P"] = OrderedDict()
+    result["per_class_R"] = OrderedDict()
 
-    # trim to selected ks and compute accuracies
-    return [tp[:, :k].max(1).mean() for k in ks]
+    result["Acc"] = accuracy_score(gt_labels, pd_labels)
+    per_class_precision = precision_score(gt_labels, pd_labels, average=None, zero_division=0)
+    per_class_recall = recall_score(gt_labels, pd_labels, average=None, zero_division=0)
+
+    print(per_class_precision)
+    print(per_class_recall)
+    print(result["Acc"])
+
+    for idx, class_name in enumerate(class_names):
+        result["per_class_P"][class_name] = per_class_precision[idx]
+        result["per_class_R"][class_name] = per_class_recall[idx]
+
+    return result
 
 
-def topk_accuracy_save_validation_pred(scores, labels, ks, modality, no_classes = 2513, selected_class=None):
-    """Computes TOP-K accuracies for different values of k
-    Args:
-        scores: numpy nd array, shape = (instance_count, label_count)
-        labels: numpy nd array, shape = (instance_count,)
-        ks: tuple of integers
+class BalancedSoftmax(nn.Module):
+    """Implement the Balanced Soft proposed in paper "Balanced Meta-Softmax for Long-Tailed Visual
+    Recognition" (NeurIPS 2020) https://github.com/jiawei-ren/BalancedMetaSoftmax-Classification"""
 
-    Returns:
-        list of float: TOP-K accuracy for each k in ks
-    """
-    if selected_class is not None:
-        idx = labels == selected_class
-        scores = scores[idx]
-        labels = labels[idx]
-    ranking = scores.argsort()[:, ::-1]
-    maxk = np.max(ks)  # trim to max k to avoid extra computation
+    def __init__(
+        self,
+        num_samples_per_class: List[int],
+        reduction: str = "mean",
+    ):
+        super().__init__()
 
-    # compute true positives in the top-maxk predictions
-    tp = ranking[:, :maxk] == labels.reshape(-1, 1)
+        self.criterion = nn.CrossEntropyLoss(
+            reduction = reduction,
+        )
 
-    allzs = np.zeros((no_classes,), dtype=int)
-    allzs_correct = np.zeros((no_classes,), dtype=int)
-    for aa in range(len(labels)):
-        curr_label = labels[aa]
-        curr_pred = ranking[:, :maxk][aa][0]
-        allzs[curr_label] = allzs[curr_label] + 1
-        if curr_label == curr_pred:
-            allzs_correct[curr_label] = allzs_correct[curr_label] + 1
+        self.num_samples_per_class = torch.FloatTensor(num_samples_per_class)
 
-    for aa in range(no_classes):
-        with open('validation_pred_'+str(modality)+'.txt', 'a') as f:
-            f.write("%d\t%d\n" % (allzs_correct[aa], allzs[aa]))
+    def forward(self, input, target):
+        spc = self.num_samples_per_class.to(input.device)
+        spc = spc.unsqueeze(0).expand(input.shape[0], -1)
+        input = input + spc.log()
 
-    # trim to selected ks and compute accuracies
-    return [tp[:, :k].max(1).mean() for k in ks]
+        return self.criterion(input, target)
 
-
-def topk_recall(scores, labels, k=5, classes=None):
-    unique = np.unique(labels)
-    if classes is None:
-        classes = unique
-    else:
-        classes = np.intersect1d(classes, unique)
-    recalls = 0
-
-    for c in classes:
-        recalls += topk_accuracy(scores, labels, ks=(k,), selected_class=c)[0]
-    return recalls / len(classes)
-
-
-'''def topk_recall_multiple_timesteps(preds, labels, k=5, classes=None):
-    accs = np.array([topk_recall(preds[:, t, :], labels, k, classes)
-                     for t in range(preds.shape[1])])
-    return accs.reshape(1, -1)'''
-
-
-def get_marginal_indexes(actions, mode):
-    """For each verb/noun retrieve the list of actions containing that verb/name
-        Input:
-            mode: "verb" or "noun"
-        Output:
-            a list of numpy array of indexes. If verb/noun 3 is contained in actions 2,8,19,
-            then output[3] will be np.array([2,8,19])
-    """
-    vi = []
-    for v in range(actions[mode].max() + 1):
-        vals = actions[actions[mode] == v].index.values
-        if len(vals) > 0:
-            vi.append(vals)
-        else:
-            vi.append(np.array([0]))
-    return vi
-
-
-def marginalize(probs, indexes):
-    mprobs = []
-    for ilist in indexes:
-        mprobs.append(probs[:, ilist].sum(1))
-    return np.array(mprobs).T
 
 
 def softmax(x):
@@ -157,30 +90,27 @@ def softmax(x):
     return res.reshape(xx.shape)
 
 
-def predictions_to_json(task, verb_scores, noun_scores, action_scores, action_ids, a_to_vn, top_actions=100, version='0.1', sls=None):
-    """Save verb, noun and action predictions to json for submitting them to the EPIC-Kitchens leaderboard"""
 
-    predictions = {'version': version, 'challenge': task, 'results': {}}
+def filelist_to_df(base:str, files:List[str]):
+    dataframe = []
+    for file in files:
+        df = pd.read_csv(base + file, header=None, names=COLS)
+        df['toy_name'] = file.split('-')[2].split('_')[0]
+        df['video'] = file.replace('.csv', '')
+        dataframe.append(df)
+    df = pd.concat(dataframe)
+    df = transform_row(df, clean=False)
+    return df
 
-    if sls is not None:
-        if task == 'action_anticipation':
-            predictions['sls_pt'] = 1
-            predictions['sls_tl'] = 4
-            predictions['sls_td'] = 4
-        elif task == 'action_recognition':
-            predictions['sls_pt'] = 1
-            predictions['sls_tl'] = 4
-            predictions['sls_td'] = 4
-
-    row_idxs = np.argsort(action_scores)[:, ::-1]
-    top_100_idxs = row_idxs[:, :top_actions]
-
-    action_scores = action_scores[np.arange(
-        len(action_scores)).reshape(-1, 1), top_100_idxs]
-
-    for i, v, n, a, ai in zip(action_ids, verb_scores, noun_scores, action_scores, top_100_idxs):
-        predictions['results'][str(i)] = {}
-        predictions['results'][str(i)]['verb'] = {str(ii): float(vv) for ii, vv in enumerate(v)}
-        predictions['results'][str(i)]['noun'] = {str(ii): float(nn) for ii, nn in enumerate(n)}
-        predictions['results'][str(i)]['action'] = {"%d,%d" % a_to_vn[ii]: float(aa) for ii, aa in zip(ai, a)}
-    return predictions
+def transform_row(df, clean):
+    """
+    For filelist types, need to convert to label constants
+    """
+    if not clean: 
+        df['fine'] = df.apply(lambda row: CLEAN_FINE[row.label if pd.isna(row.remark) else row.remark], axis=1)
+    df['fine'] = df.apply(lambda row: FINE_TO_LABEL[row.fine], axis=1)
+    df['coarse'] = df.apply(lambda row: COARSE_TO_LABEL[row.label], axis=1)
+    df['verb'] = df.apply(lambda row: VERB_TO_LABEL[row.verb], axis=1)
+    df['this'] = df.apply(lambda row: NOUN_TO_LABEL[row.this], axis=1)
+    df['that'] = df.apply(lambda row: NOUN_TO_LABEL[row.that], axis=1)
+    return df

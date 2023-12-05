@@ -6,34 +6,36 @@ import numpy as np
 import pandas as pd
 from torch.utils import data
 from tqdm import tqdm
+import json
+from utils import filelist_to_df
 
 
 class SequenceDataset(data.Dataset):
     def __init__(self, path_to_lmdb,
-                 path_to_csv,
-                 label_type='action',
-                 img_tmpl="frame_{:010d}.jpg",
-                 challenge=False,
+                 path_to_annots,
+                 path_to_info,
+                 mode,  # 'test' or 'train'
+                 label_type=['coarse'], # ['coarse', 'label'],
+                 img_tmpl="{video}/{view}/{view}_{frame:010d}.jpg",
                  fps=30,
                  args=None):
         """
             Inputs:
                 path_to_lmdb: path to the folder containing the LMDB dataset
                 path_to_csv: path to training/validation csv
-                label_type: which label to return (verb, noun, or action)
+                label_type: which label to return (coarse = label, fine = remark)
                 img_tmpl: image template to load the features
-                challenge: allows to load csvs containing only time-stamp for the challenge
                 fps: framerate
         """
 
-        # read the csv file
-        if challenge:
-            self.annotations = pd.read_csv(path_to_csv, header=None, names=['video', 'start', 'end'])
-        else:
-            self.annotations = pd.read_csv(path_to_csv, header=None,
-                                           names=['video', 'start', 'end', 'verb', 'noun', 'action'])
+        with open(path_to_info, 'r') as f:
+                splits = json.load(f)
+                files = splits[f'{mode}_session_set']
+                files = [f + '.csv' for f in files]
+        self.annotations = filelist_to_df(path_to_annots, files)
+        self.task = args.task
+        self.view = args.view
 
-        self.challenge = challenge
         self.path_to_lmdb = path_to_lmdb
         self.fps = fps
         self.label_type = label_type
@@ -55,14 +57,14 @@ class SequenceDataset(data.Dataset):
         self.debug_on = args.debug_on
 
         # initialize some lists
-        self.ids = []  # action ids
+        self.ids = []  # mistake ids
         self.discarded_ids = []  # list of ids discarded (e.g., if there were
-        # no enough frames before the beginning of the action
+        # no enough frames before the beginning of the mistake
         self.discarded_labels = [] # list of labels discarded (e.g., if there 
-        # were no enough frames before the beginning of the action
+        # were no enough frames before the beginning of the mistake
         self.recent_frames = []  # recent past
         self.spanning_frames = []  # spanning past
-        self.labels = []  # labels of each action
+        self.labels = []  # labels of each mistake
 
         # populate them
         self.__populate_lists()
@@ -76,55 +78,49 @@ class SequenceDataset(data.Dataset):
 
     def __populate_lists(self):
         count_debug = 0
-        """ Samples a sequence for each action and populates the lists. """
+        """ Samples a sequence for each mistake and populates the lists. """
         for _, a in tqdm(self.annotations.iterrows(), 'Populating Dataset', total=len(self.annotations)):
             count_debug += 1
             if self.debug_on:
                 if count_debug > 10:
                     break
 
-            # sample frames before the beginning of the action
+            # sample frames before the beginning of the mistake
             recent_f, spanning_f = self.__get_snippet_features(a.start, a.end, a.video)
 
-            # check if there were enough frames before the beginning of the action
+            # check if there were enough frames before the beginning of the mistake
             # if the smaller frame is at least 1, the sequence is valid
             if spanning_f is not None and recent_f is not None:
                 self.spanning_frames.append(spanning_f)
                 self.recent_frames.append(recent_f)
                 self.ids.append(a.name)
 
-                # handle whether a list of labels is required (e.g., [verb, noun]), rather than a single action
+                # handle whether a list of labels is required (e.g., [label, remark]), rather than a single label
                 if isinstance(self.label_type, list):
-                    if self.challenge:  # if sampling for the challenge, there are no labels, just add -1
-                        self.labels.append(-1)
-                    else:
-                        # otherwise get the required labels
-                        self.labels.append(a[self.label_type].values.astype(int))
+                    self.labels.append(a[self.label_type].values.astype(int))
                 else:  # single label version
-                    if self.challenge:
-                        self.labels.append(-1)
-                    else:
-                        self.labels.append(a[self.label_type])
+                    self.labels.append(a[self.label_type])
             else:
                 # if the sequence is invalid, do nothing, but add the id to the discarded_ids list
                 self.discarded_ids.append(a.name)
                 if isinstance(self.label_type, list):
-                    if self.challenge: # if sampling for the challenge, there are no labels, just add -1
-                        self.discarded_labels.append(-1)
-                    else:
-                        # otherwise get the required labels
-                        self.discarded_labels.append(a[self.label_type].values.astype(int))
+                    self.discarded_labels.append(a[self.label_type].values.astype(int))
                 else: #single label version
-                    if self.challenge:
-                        self.discarded_labels.append(-1)
-                    else:
-                        self.discarded_labels.append(a[self.label_type])
+                    self.discarded_labels.append(a[self.label_type])
 
     def __get_snippet_features(self, point_start, point_end, video):
 
         # Spanning snippets
         start_spanning = max(point_start - (self.spanning_sec * self.fps), 0)
-        end_spanning = point_end + (self.spanning_sec * self.fps)
+        if self.task == 'online':
+            end_recent1 = end_recent2 = end_recent3 = end_recent4 = end_spanning = point_end # CHANGE made here to make online
+        else:
+            end_spanning = point_end + (self.spanning_sec * self.fps)
+            # Recent snippets
+            end_recent1 = int(point_end + (self.recent_sec1 * self.fps))
+            end_recent2 = int(point_end + (self.recent_sec2 * self.fps))
+            end_recent3 = int(point_end + (self.recent_sec3 * self.fps))
+            end_recent4 = int(point_end + (self.recent_sec4 * self.fps))
 
         select_spanning_frames1 = np.linspace(start_spanning, end_spanning, self.span_dim1 + 1, dtype=int)
         select_spanning_frames2 = np.linspace(start_spanning, end_spanning, self.span_dim2 + 1, dtype=int)
@@ -136,13 +132,9 @@ class SequenceDataset(data.Dataset):
 
         # Recent snippets
         start_recent1 = int(max(point_start - (self.recent_sec1 * self.fps), 0))
-        end_recent1 = int(point_end + (self.recent_sec1 * self.fps))
         start_recent2 = int(max(point_start - (self.recent_sec2 * self.fps), 0))
-        end_recent2 = int(point_end + (self.recent_sec2 * self.fps))
         start_recent3 = int(max(point_start - (self.recent_sec3 * self.fps), 0))
-        end_recent3 = int(point_end + (self.recent_sec3 * self.fps))
         start_recent4 = int(max(point_start - (self.recent_sec4 * self.fps), 0))
-        end_recent4 = int(point_end + (self.recent_sec4 * self.fps))
 
         select_recent_frames1 = np.linspace(start_recent1, end_recent1, self.recent_dim + 1, dtype=int)
         select_recent_frames2 = np.linspace(start_recent2, end_recent2, self.recent_dim + 1, dtype=int)
@@ -167,7 +159,7 @@ class SequenceDataset(data.Dataset):
 
     def __get_frames(self, frames, video):
         """ format file names using the image template """
-        frames = np.array(list(map(lambda x: video + "_" + self.img_tmpl.format(x), frames)))
+        frames = np.array(list(map(lambda frame: self.img_tmpl.format(video=video, view=self.view, frame=frame), frames)))
         return frames
 
     def __len__(self):
@@ -257,7 +249,6 @@ def get_max_pooled_features(env, frame_names, feat_dim):
         
     list_features = np.stack(list_features)
     return list_features
-
 
 def read_data(recent_frames, spanning_frames, env, feat_dim):
     """A wrapper form read_representations to handle loading from more environments.

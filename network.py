@@ -94,7 +94,7 @@ class Network(nn.Module):
     def __init__(self, args):
         super(Network, self).__init__()
 
-        self.n_classes = args.num_class
+        self.n_classes = args.num_coarse_classes
         self.linear_dim = args.linear_dim
 
         self.TAB1 = TemporalAggregateBlocks(args)
@@ -106,20 +106,6 @@ class Network(nn.Module):
         self.cls_act2 = nn.Sequential(nn.Linear(in_features=2 * self.linear_dim, out_features=self.n_classes))
         self.cls_act3 = nn.Sequential(nn.Linear(in_features=2 * self.linear_dim, out_features=self.n_classes))
         self.cls_act4 = nn.Sequential(nn.Linear(in_features=2 * self.linear_dim, out_features=self.n_classes))
-
-        self.add_verb_loss = args.add_verb_loss
-        self.add_noun_loss = args.add_noun_loss
-        if args.add_verb_loss:
-            self.cls_verb1 = nn.Sequential(nn.Linear(in_features=2 * self.linear_dim, out_features=args.verb_class))
-            self.cls_verb2 = nn.Sequential(nn.Linear(in_features=2 * self.linear_dim, out_features=args.verb_class))
-            self.cls_verb3 = nn.Sequential(nn.Linear(in_features=2 * self.linear_dim, out_features=args.verb_class))
-            self.cls_verb4 = nn.Sequential(nn.Linear(in_features=2 * self.linear_dim, out_features=args.verb_class))
-
-        if args.add_noun_loss:
-            self.cls_noun1 = nn.Sequential(nn.Linear(in_features=2 * self.linear_dim, out_features=args.noun_class))
-            self.cls_noun2 = nn.Sequential(nn.Linear(in_features=2 * self.linear_dim, out_features=args.noun_class))
-            self.cls_noun3 = nn.Sequential(nn.Linear(in_features=2 * self.linear_dim, out_features=args.noun_class))
-            self.cls_noun4 = nn.Sequential(nn.Linear(in_features=2 * self.linear_dim, out_features=args.noun_class))
 
     def forward(self, spanning_snippets, recent_snippets):
         out_tab_recent1, out_tab_past1 = self.TAB1(spanning_snippets, recent_snippets[0])
@@ -139,29 +125,5 @@ class Network(nn.Module):
         cat_tab4 = torch.cat((out_tab_recent4, out_tab_past4), 1)
         pred_act4 = self.cls_act4(cat_tab4)
 
-        if self.add_verb_loss:
-            pred_verb1 = self.cls_verb1(cat_tab1)
-            pred_verb2 = self.cls_verb2(cat_tab2)
-            pred_verb3 = self.cls_verb3(cat_tab3)
-            pred_verb4 = self.cls_verb4(cat_tab4)
-        else:
-            pred_verb1 = None
-            pred_verb2 = None
-            pred_verb3 = None
-            pred_verb4 = None
-
-        if self.add_noun_loss:
-            pred_noun1 = self.cls_noun1(cat_tab1)
-            pred_noun2 = self.cls_noun2(cat_tab2)
-            pred_noun3 = self.cls_noun3(cat_tab3)
-            pred_noun4 = self.cls_noun4(cat_tab4)
-        else:
-            pred_noun1 = None
-            pred_noun2 = None
-            pred_noun3 = None
-            pred_noun4 = None
-
-        return pred_act1, pred_act2, pred_act3, pred_act4, \
-               pred_verb1, pred_verb2, pred_verb3, pred_verb4, \
-               pred_noun1, pred_noun2, pred_noun3, pred_noun4
+        return pred_act1, pred_act2, pred_act3, pred_act4
 
