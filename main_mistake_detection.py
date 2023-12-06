@@ -183,6 +183,8 @@ def train_test(model, loaders, optimizer, epochs, start_epoch, schedule_on):
                     bs = y_label.shape[0]  # batch size
 
                     pred_mistake1, pred_mistake2, pred_mistake3, pred_mistake4 = model(x_spanning, x_recent)
+
+
                     
                     loss = loss_mistake_TAB1(pred_mistake1, y_label) + \
                            loss_mistake_TAB2(pred_mistake2, y_label) + \
@@ -193,6 +195,9 @@ def train_test(model, loaders, optimizer, epochs, start_epoch, schedule_on):
                     # Output log for current batch
                     pbar.set_postfix({
                         "loss": "{:.5f}".format(loss.item()),
+                        "lr": "{:.5f}".format(optimizer.param_groups[0]['lr']),
+                        "mode": mode,
+                        "sched_lr": schedule_on.get_last_lr() if schedule_on is not None else "None"
                     })
                     
                     # store the values in the meters to keep incremental averages
@@ -201,8 +206,8 @@ def train_test(model, loaders, optimizer, epochs, start_epoch, schedule_on):
                         optimizer.zero_grad()
                         loss.backward()
                         optimizer.step()
-                        if schedule_on is not None:
-                            schedule_on.step()
+                        
+                        
                     else: 
                         gt_labels.extend(y_label.detach().cpu().tolist())
                         preds['mistake1'].extend(pred_mistake1.argmax(1).detach().cpu().tolist())
@@ -210,6 +215,30 @@ def train_test(model, loaders, optimizer, epochs, start_epoch, schedule_on):
                         preds['mistake3'].extend(pred_mistake3.argmax(1).detach().cpu().tolist())
                         preds['mistake4'].extend(pred_mistake4.argmax(1).detach().cpu().tolist())
                         preds['ensemble'].extend((pred_mistake1.detach() + pred_mistake2.detach() + pred_mistake3.detach() + pred_mistake4.detach()).argmax(1).cpu().tolist())
+                        # with open(args.path_to_models + '/' + exp_name + '_preds.txt', 'a') as f:
+                        #     f.write("===================================================================\nLABEL: ")
+                        #     f.write(','.join(list(map(str, y_label.detach().cpu().tolist()))))
+                        #     f.write("\n-------------------------------------------------------------------\nMIST1: ")
+                        #     f.write(','.join(list(map(str, pred_mistake1.argmax(1).detach().cpu().tolist()))))
+                        #     f.write("\n-------------------------------------------------------------------\nMIST2: ")
+                        #     f.write(','.join(list(map(str, pred_mistake2.argmax(1).detach().cpu().tolist()))))
+                        #     f.write("\n-------------------------------------------------------------------\nMIST3: ")
+                        #     f.write(','.join(list(map(str, pred_mistake3.argmax(1).detach().cpu().tolist()))))
+                        #     f.write("\n-------------------------------------------------------------------\nMIST4: ")
+                        #     f.write(','.join(list(map(str, pred_mistake4.argmax(1).detach().cpu().tolist()))))
+                        #     f.write("\n-------------------------------------------------------------------\nENS:   ")
+                        #     f.write(','.join(list(map(str, (pred_mistake1.detach() + pred_mistake2.detach() + pred_mistake3.detach() + pred_mistake4.detach()).argmax(1).cpu().tolist()))))
+                        #     f.write("\n-------------------------------------------------------------------\n")
+                        #     f.write(str(loss.item()))
+                        #     f.write(' ')
+                        #     f.write(str(schedule_on.get_last_lr()))
+                        #     f.write(' ')
+                        #     f.write(str(bs))
+                        #     f.write(' ')
+                        #     f.write(str(i))
+                        #     f.write("\n===================================================================\n\n")
+        if schedule_on is not None:
+            schedule_on.step()
 
         end = time.time()
 
