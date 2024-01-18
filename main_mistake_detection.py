@@ -30,7 +30,7 @@ parser.add_argument('--view', type=str, default='C10119_rgb')
 parser.add_argument("-g", "--gpu", default=0, type=int, help="specify visible devices")
 parser.add_argument('--path_to_data', type=str, default=COMP_PATH + 'data/')
 parser.add_argument('--path_to_annots', type=str, default=COMP_PATH + 'data/annots/')
-parser.add_argument('--path_to_info', type=str, default=COMP_PATH + 'data/info.json')
+parser.add_argument('--path_to_info', type=str, default=COMP_PATH + 'data/infoTempAgg.json')
 parser.add_argument('--path_to_models', type=str, default=COMP_PATH + 'models_mistake_detection/',
                     help="Path to the directory where to save all models")
 
@@ -87,11 +87,11 @@ args = parser.parse_args()
 def make_model_name(arg_save):
 
     save_name = "anti_span_{}_s1_{}_s2_{}_s3_{}_recent_{}_r1_{}_r2_{}_r3_{}_r4_{}_bs_{}_drop_{}_lr_{}_dimLa_{}_" \
-                "dimLi_{}_epoc_{}".format(arg_save.spanning_sec, arg_save.span_dim1,
+                "dimLi_{}_epoc_{}_task_{}".format(arg_save.spanning_sec, arg_save.span_dim1,
                                           arg_save.span_dim2, arg_save.span_dim3, arg_save.recent_dim,
                                           arg_save.recent_sec1, arg_save.recent_sec2, arg_save.recent_sec3,
                                           arg_save.recent_sec4, arg_save.batch_size, arg_save.dropout_rate, arg_save.lr,
-                                          arg_save.latent_dim, arg_save.linear_dim, arg_save.epochs)
+                                          arg_save.latent_dim, arg_save.linear_dim, arg_save.epochs, args.task)
     
     # Base name without try number
     base_save_name = save_name

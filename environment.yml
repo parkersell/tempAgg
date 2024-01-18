@@ -1,4 +1,4 @@
-name: /data/parkersell/.conda/envs/tempAgg
+name: tempAgg
 channels:
   - pytorch
   - nvidia
