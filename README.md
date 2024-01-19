@@ -25,7 +25,7 @@ $YOUR_DATA_PATH
 
 ## Setup environment
 
-`conda create env -f environment.yml`
+`conda env create -f environment.yml`
 
 And change COMP_PATH [here](https://github.com/parkersell/tempAgg/blob/mistake_detection/main_mistake_detection.py#L24).
 
